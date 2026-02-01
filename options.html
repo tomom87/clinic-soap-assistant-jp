@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <title>AI Medical Scribe Settings</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+      width: 400px;
+    }
+
+    h1 {
+      font-size: 18px;
+      margin-bottom: 20px;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+
+    input[type="text"],
+    textarea {
+      width: 100%;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+
+    textarea {
+      height: 200px;
+      font-family: monospace;
+    }
+
+    button {
+      padding: 10px 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      cursor: pointer;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    #status {
+      margin-top: 10px;
+      color: green;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Medical AI Scribe 設定</h1>
+  <p>1日80件の制限枠を確保するため、最大4つのAPIキーを登録してください。</p>
+
+  <div class="form-group">
+    <label for="prompt">システムプロンプト (SOAP生成指示)</label>
+    <textarea id="prompt" placeholder="Geminiへの指示を入力してください"></textarea>
+  </div>
+
+  <h3>APIキー設定</h3>
+  <div class="form-group">
+    <label for="key1">API Key 1 (Priority 1)</label>
+    <input type="text" id="key1" placeholder="Enter API Key 1">
+  </div>
+
+  <div class="form-group">
+    <label for="key2">API Key 2 (Priority 2)</label>
+    <input type="text" id="key2" placeholder="Enter API Key 2">
+  </div>
+
+  <div class="form-group">
+    <label for="key3">API Key 3 (Priority 3)</label>
+    <input type="text" id="key3" placeholder="Enter API Key 3">
+  </div>
+
+  <div class="form-group">
+    <label for="key4">API Key 4 (Priority 4)</label>
+    <input type="text" id="key4" placeholder="Enter API Key 4">
+  </div>
+
+  <button id="save">Save Settings</button>
+  <div id="status"></div>
+
+  <script src="options.js"></script>
+</body>
+
+</html>

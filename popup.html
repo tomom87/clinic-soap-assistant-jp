@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>AI Medical Scribe</title>
+  <link rel="stylesheet" href="popup.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>AI Medical Scribe</h2>
+      <button id="open-options" class="icon-btn" title="設定"><i class="fas fa-cog"></i></button>
+    </div>
+
+    <div class="controls">
+      <button id="start-btn" class="btn primary">
+        <i class="fas fa-microphone"></i> 録音開始
+      </button>
+      <button id="stop-btn" class="btn danger" disabled>
+        <i class="fas fa-stop"></i> 停止・解析
+      </button>
+    </div>
+
+    <div id="status-msg" class="status-msg">待機中</div>
+
+    <div class="result-area">
+      <div class="result-header">
+        <span>生成結果 (SOAP)</span>
+        <button id="copy-btn" class="btn sm" disabled>コピー</button>
+      </div>
+      <textarea id="result-text" placeholder="ここに生成結果が表示されます..."></textarea>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
