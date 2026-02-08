@@ -1,8 +1,15 @@
 // --- Side Panel Behavior ---
-// アイコンクリック時にサイドパネルを開く設定
-chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((error) => console.error(error));
+// インストール・更新時にサイドパネルの動作を設定
+chrome.runtime.onInstalled.addListener(() => {
+    chrome.sidePanel
+        .setPanelBehavior({ openPanelOnActionClick: true })
+        .catch((error) => console.error(error));
+});
+
+// アイコンクリック時の予備動作（念のため）
+chrome.action.onClicked.addListener((tab) => {
+    chrome.sidePanel.open({ windowId: tab.windowId });
+});
 
 // --- Keyboard Shortcuts ---
 chrome.commands.onCommand.addListener((command) => {
