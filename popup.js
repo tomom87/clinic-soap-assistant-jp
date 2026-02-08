@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
       updateStatus('マイク使用が許可されました。');
       micErrorContainer.style.display = 'none';
     } catch (err) {
-      console.error('Permission denied:', err);
+      console.warn('Microphone permission status:', err.name || err);
       handleMicError(err);
     }
   };

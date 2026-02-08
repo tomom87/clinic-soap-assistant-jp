@@ -139,3 +139,24 @@ textarea:focus {
   outline: none;
   border-color: #3498db;
 }
+
+.mic-error-container {
+  background-color: #fff3cd;
+  border: 1px solid #ffeeba;
+  color: #856404;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.mic-error-container p {
+  margin: 0 0 10px 0;
+}
+
+.mic-error-container .btn {
+  display: inline-flex;
+  width: auto;
+  padding: 6px 12px;
+}

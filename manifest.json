@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Medical Scribe",
-  "version": "1.1.8",
+  "version": "1.1.9",
   "description": "Medical AI Scribe using Gemini 2.5 Flash for SOAP note generation.",
   "icons": {
     "16": "icons/icon16.png",
