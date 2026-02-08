@@ -1,17 +1,36 @@
 {
   "manifest_version": 3,
   "name": "AI Medical Scribe",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Medical AI Scribe using Gemini 2.5 Flash for SOAP note generation.",
   "permissions": [
-    "storage"
+    "storage",
+    "sidePanel"
   ],
   "action": {
-    "default_popup": "popup.html",
+    "default_title": "AI Medical Scribe を開く",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "popup.html"
+  },
+  "commands": {
+    "toggle-recording": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+L",
+        "mac": "Command+Shift+L"
+      },
+      "description": "録音の開始/停止を切り替える"
+    },
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+U",
+        "mac": "Command+Shift+U"
+      }
     }
   },
   "icons": {

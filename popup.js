@@ -116,12 +116,9 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.set({ usageLog });
   };
 
-  // --- Audio Recording ---
-  startBtn.addEventListener('click', async () => {
+  const startRecording = async () => {
     try {
-      // Prompt for microphone permission through getUserMedia
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
       mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
       audioChunks = [];
 
@@ -139,8 +136,6 @@ document.addEventListener('DOMContentLoaded', () => {
           const base64Audio = reader.result.split(',')[1];
           await processAudio(base64Audio);
         };
-
-        // Stop all tracks to release microphone
         stream.getTracks().forEach(track => track.stop());
       };
 
@@ -155,14 +150,29 @@ document.addEventListener('DOMContentLoaded', () => {
       console.error('Error starting recording:', err);
       updateStatus('マイクへのアクセスに失敗しました: ' + err.message, 'error');
     }
-  });
+  };
 
-  stopBtn.addEventListener('click', () => {
+  const stopRecording = () => {
     if (mediaRecorder && mediaRecorder.state === 'recording') {
       mediaRecorder.stop();
       updateStatus('音声処理中...', 'processing');
       startBtn.disabled = false;
       stopBtn.disabled = true;
+    }
+  };
+
+  // --- Audio Recording Event Listeners ---
+  startBtn.addEventListener('click', startRecording);
+  stopBtn.addEventListener('click', stopRecording);
+
+  // --- Message Listener for Shortcuts ---
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === "toggle-recording") {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        stopRecording();
+      } else {
+        startRecording();
+      }
     }
   });
 

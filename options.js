@@ -60,3 +60,6 @@ const restoreOptions = () => {
 
 document.addEventListener('DOMContentLoaded', restoreOptions);
 document.getElementById('save').addEventListener('click', saveOptions);
+document.getElementById('open-shortcuts').addEventListener('click', () => {
+  chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
+});
