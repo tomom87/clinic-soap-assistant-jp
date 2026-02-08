@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
   <meta charset="UTF-8">
   <title>AI Medical Scribe</title>
   <link rel="stylesheet" href="popup.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
+
 <body>
   <div class="container">
     <div class="header">
@@ -24,6 +26,11 @@
 
     <div id="status-msg" class="status-msg">待機中</div>
 
+    <div id="mic-error-container" class="mic-error-container" style="display: none;">
+      <p><i class="fas fa-exclamation-triangle"></i> マイクの許可が必要です。</p>
+      <button id="open-settings-btn" class="btn primary sm">設定画面を開く</button>
+    </div>
+
     <div class="result-area">
       <div class="result-header">
         <span>生成結果 (SOAP)</span>
@@ -34,4 +41,5 @@
   </div>
   <script src="popup.js"></script>
 </body>
+
 </html>

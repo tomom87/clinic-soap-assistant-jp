@@ -32,18 +32,37 @@ document.addEventListener('DOMContentLoaded', () => {
 # Output Data
 - コピーするテキストのみ（解説や挨拶は不要）`;
 
+  const micErrorContainer = document.getElementById('mic-error-container');
+  const openSettingsBtn = document.getElementById('open-settings-btn');
+
   // --- Initialize: Request Microphone Permission ---
   const requestMicPermission = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach(track => track.stop()); // すぐに止める
       updateStatus('マイク使用が許可されました。');
+      micErrorContainer.style.display = 'none';
     } catch (err) {
       console.error('Permission denied:', err);
-      updateStatus('マイクの許可が必要です。設定を確認してください。', 'error');
+      handleMicError(err);
     }
   };
   requestMicPermission();
+
+  const handleMicError = (err) => {
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      updateStatus('マイクの許可が必要です。', 'error');
+      micErrorContainer.style.display = 'block';
+    } else {
+      updateStatus('マイクエラー: ' + err.message, 'error');
+    }
+  };
+
+  openSettingsBtn.addEventListener('click', () => {
+    const extensionId = chrome.runtime.id;
+    const settingsUrl = `chrome://settings/content/siteDetails?site=chrome-extension%3A%2F%2F${extensionId}`;
+    chrome.tabs.create({ url: settingsUrl });
+  });
 
   // --- UI Helpers ---
   const updateStatus = (msg, type = 'normal') => {
@@ -119,6 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micErrorContainer.style.display = 'none';
       mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
       audioChunks = [];
 
@@ -148,7 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     } catch (err) {
       console.error('Error starting recording:', err);
-      updateStatus('マイクへのアクセスに失敗しました: ' + err.message, 'error');
+      handleMicError(err);
     }
   };
 
