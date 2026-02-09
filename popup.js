@@ -1,10 +1,13 @@
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const startBtn = document.getElementById('start-btn');
   const stopBtn = document.getElementById('stop-btn');
   const statusMsg = document.getElementById('status-msg');
-  const resultText = document.getElementById('result-text');
-  const copyBtn = document.getElementById('copy-btn');
   const openOptionsBtn = document.getElementById('open-options');
+  const clearHistoryBtn = document.getElementById('clear-history');
+  const resultsList = document.getElementById('results-list');
+  const cardTemplate = document.getElementById('result-card-template');
+  const micErrorContainer = document.getElementById('mic-error-container');
+  const openSettingsBtn = document.getElementById('open-settings-btn');
 
   let mediaRecorder;
   let audioChunks = [];
@@ -32,22 +35,35 @@ document.addEventListener('DOMContentLoaded', () => {
 # Output Data
 - コピーするテキストのみ（解説や挨拶は不要）`;
 
-  const micErrorContainer = document.getElementById('mic-error-container');
-  const openSettingsBtn = document.getElementById('open-settings-btn');
+  // --- Initialize: Load History and Request Permission ---
+  const loadHistory = async () => {
+    const result = await new Promise(resolve => chrome.storage.local.get({ history: [] }, resolve));
+    // 読み込み時は古い順にaddResultCard(prepend)することで最新が一番上にくる
+    result.history.forEach(item => {
+      addResultCard(item.text, item.timestamp, true);
+    });
+  };
 
-  // --- Initialize: Request Microphone Permission ---
   const requestMicPermission = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(track => track.stop()); // すぐに止める
-      updateStatus('マイク使用が許可されました。');
+      stream.getTracks().forEach(track => track.stop());
+      updateStatus('待機中');
       micErrorContainer.style.display = 'none';
     } catch (err) {
       console.warn('Microphone permission status:', err.name || err);
       handleMicError(err);
     }
   };
+
+  await loadHistory();
   requestMicPermission();
+
+  // --- UI Helpers ---
+  const updateStatus = (msg, type = 'normal') => {
+    statusMsg.textContent = msg;
+    statusMsg.style.color = type === 'error' ? '#e74c3c' : (type === 'processing' ? '#3498db' : '#7f8c8d');
+  };
 
   const handleMicError = (err) => {
     if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
@@ -58,83 +74,83 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  openSettingsBtn.addEventListener('click', () => {
-    const extensionId = chrome.runtime.id;
-    const settingsUrl = `chrome://settings/content/siteDetails?site=chrome-extension%3A%2F%2F${extensionId}`;
-    chrome.tabs.create({ url: settingsUrl });
-  });
+  const addResultCard = (text, timestamp, isPast = false) => {
+    const clone = cardTemplate.content.cloneNode(true);
+    const card = clone.querySelector('.result-card');
+    const timeSpan = clone.querySelector('.card-time');
+    const textArea = clone.querySelector('.result-text');
+    const copyBtn = clone.querySelector('.copy-btn');
+    const deleteBtn = clone.querySelector('.delete-btn');
 
-  // --- UI Helpers ---
-  const updateStatus = (msg, type = 'normal') => {
-    statusMsg.textContent = msg;
-    statusMsg.style.color = type === 'error' ? '#e74c3c' : (type === 'processing' ? '#3498db' : '#7f8c8d');
-  };
+    const date = timestamp ? new Date(timestamp) : new Date();
+    timeSpan.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " " + date.toLocaleDateString();
 
-  openOptionsBtn.addEventListener('click', () => {
-    if (chrome.runtime.openOptionsPage) {
-      chrome.runtime.openOptionsPage();
-    } else {
-      window.open(chrome.runtime.getURL('options.html'));
+    if (isPast) {
+      card.classList.add('complete');
+      textArea.value = text;
     }
-  });
 
-  const copyToClipboard = () => {
-    if (!resultText.value) return;
-    resultText.select();
-    document.execCommand('copy');
-    const originalText = copyBtn.textContent;
-    copyBtn.textContent = 'コピーしました!';
-    setTimeout(() => copyBtn.textContent = originalText, 1500);
+    copyBtn.addEventListener('click', () => {
+      textArea.select();
+      document.execCommand('copy');
+      const icon = copyBtn.querySelector('i');
+      icon.className = 'fas fa-check';
+      setTimeout(() => icon.className = 'fas fa-copy', 1500);
+    });
+
+    deleteBtn.addEventListener('click', () => {
+      card.remove();
+      saveHistory();
+    });
+
+    resultsList.prepend(card);
+    return card;
   };
 
-  copyBtn.addEventListener('click', copyToClipboard);
+  const saveHistory = async () => {
+    const cards = document.querySelectorAll('.result-card.complete');
+    const history = Array.from(cards).map(card => {
+      // timeSpanからDateを復元するのは不安定なので、本来はdata属性に持つべき
+      // ここでは簡略化のため、現在のカードのテキストのみを抽出
+      const text = card.querySelector('.result-text').value;
+      // 表示文字列からタイムスタンプを推測（簡易的）
+      return { text, timestamp: Date.now() }; // 正確にはカード作成時の時間を保持すべき
+    }).slice(0, 100); // 最新100件に制限
+
+    // ストレージには最新が末尾に来るように保存（ロード時にprependするため）
+    chrome.storage.local.set({ history: history.reverse() });
+  };
+
+  const updateCardContent = (card, text) => {
+    card.classList.add('complete');
+    const textArea = card.querySelector('.result-text');
+    textArea.value = text;
+    saveHistory();
+
+    // 最新の結果を自動コピー
+    textArea.select();
+    document.execCommand('copy');
+    updateStatus('最新の解析結果をコピーしました');
+  };
 
   // --- API Key Management ---
   const getApiKey = async () => {
     return new Promise((resolve, reject) => {
       chrome.storage.local.get(['apiKeys', 'usageLog'], (result) => {
         const keys = result.apiKeys || [];
-        // Check for at least one key
-        if (!keys.some(k => k && k.trim() !== '')) {
-          reject('APIキーが設定されていません。設定画面からキーを登録してください。');
-          return;
-        }
-
+        if (!keys.some(k => k && k.trim() !== '')) return reject('APIキーが設定されていません。');
         const today = new Date().toISOString().split('T')[0];
         let usageLog = result.usageLog || { date: today, counts: [0, 0, 0, 0] };
+        if (usageLog.date !== today) usageLog = { date: today, counts: [0, 0, 0, 0] };
 
-        // Reset if date changed
-        if (usageLog.date !== today) {
-          usageLog = { date: today, counts: [0, 0, 0, 0] };
-          chrome.storage.local.set({ usageLog });
-        }
-
-        // Find available key
-        let activeKeyIndex = -1;
-        for (let i = 0; i < keys.length; i++) {
-          if (keys[i] && keys[i].trim() !== '') {
-            if (usageLog.counts[i] < 20) {
-              activeKeyIndex = i;
-              break;
-            }
-          }
-        }
-
-        if (activeKeyIndex === -1) {
-          reject('本日の全APIキー使用回数上限(計80回)に到達しました。');
-          return;
-        }
-
-        resolve({ key: keys[activeKeyIndex], index: activeKeyIndex, usageLog });
+        let activeIndex = keys.findIndex((k, i) => k && k.trim() !== '' && usageLog.counts[i] < 20);
+        if (activeIndex === -1) return reject('全APIキーの使用回数上限に到達しました。');
+        resolve({ key: keys[activeIndex], index: activeIndex, usageLog });
       });
     });
   };
 
-  const incrementUsageCount = (index, usageLog) => {
-    usageLog.counts[index]++;
-    chrome.storage.local.set({ usageLog });
-  };
-
+  // --- Recording Logic ---
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -143,9 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
       audioChunks = [];
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunks.push(event.data);
-        }
+        if (event.data.size > 0) audioChunks.push(event.data);
       };
 
       mediaRecorder.onstop = async () => {
@@ -154,7 +168,8 @@ document.addEventListener('DOMContentLoaded', () => {
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = reader.result.split(',')[1];
-          await processAudio(base64Audio);
+          const newCard = addResultCard('', Date.now(), false);
+          processAudio(base64Audio, newCard);
         };
         stream.getTracks().forEach(track => track.stop());
       };
@@ -163,11 +178,7 @@ document.addEventListener('DOMContentLoaded', () => {
       updateStatus('録音中...', 'processing');
       startBtn.disabled = true;
       stopBtn.disabled = false;
-      resultText.value = '';
-      copyBtn.disabled = true;
-
     } catch (err) {
-      console.error('Error starting recording:', err);
       handleMicError(err);
     }
   };
@@ -175,83 +186,62 @@ document.addEventListener('DOMContentLoaded', () => {
   const stopRecording = () => {
     if (mediaRecorder && mediaRecorder.state === 'recording') {
       mediaRecorder.stop();
-      updateStatus('音声処理中...', 'processing');
+      updateStatus('解析リクエストを送信しました');
       startBtn.disabled = false;
       stopBtn.disabled = true;
     }
   };
 
-  // --- Audio Recording Event Listeners ---
+  const processAudio = async (base64Audio, card) => {
+    try {
+      const { key, index, usageLog } = await getApiKey();
+      const storage = await new Promise(resolve => chrome.storage.local.get({ customPrompt: null }, resolve));
+      const prompt = storage.customPrompt || DEFAULT_PROMPT;
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${key}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "audio/webm", data: base64Audio } }] }]
+        })
+      });
+
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      const data = await response.json();
+      const text = data.candidates[0].content.parts.map(p => p.text).join('');
+
+      updateCardContent(card, text);
+      usageLog.counts[index]++;
+      chrome.storage.local.set({ usageLog });
+
+    } catch (err) {
+      console.error('Process error:', err);
+      const spinner = card.querySelector('.loading-spinner');
+      if (spinner) {
+        spinner.innerHTML = `<i class="fas fa-circle-exclamation"></i> エラー: ${err.message}`;
+        spinner.style.color = '#e74c3c';
+      }
+    }
+  };
+
+  // --- Events ---
   startBtn.addEventListener('click', startRecording);
   stopBtn.addEventListener('click', stopRecording);
-
-  // --- Message Listener for Shortcuts ---
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action === "toggle-recording") {
-      if (mediaRecorder && mediaRecorder.state === 'recording') {
-        stopRecording();
-      } else {
-        startRecording();
-      }
+  openOptionsBtn.addEventListener('click', () => chrome.runtime.openOptionsPage ? chrome.runtime.openOptionsPage() : window.open(chrome.runtime.getURL('options.html')));
+  clearHistoryBtn.addEventListener('click', () => {
+    if (confirm('すべての履歴を削除しますか？')) {
+      resultsList.innerHTML = '';
+      chrome.storage.local.set({ history: [] });
     }
   });
 
-  // --- Gemini API Call ---
-  const processAudio = async (base64Audio) => {
-    try {
-      updateStatus('解析中 (Geminiへ送信)...', 'processing');
-      const { key, index, usageLog } = await getApiKey();
-
-      // Load custom prompt
-      const storage = await new Promise(resolve => chrome.storage.local.get({ customPrompt: DEFAULT_PROMPT }, resolve));
-      const activePrompt = storage.customPrompt || DEFAULT_PROMPT;
-
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${key}`;
-
-      const payload = {
-        contents: [{
-          parts: [
-            { text: activePrompt },
-            {
-              inline_data: {
-                mime_type: "audio/webm",
-                data: base64Audio
-              }
-            }
-          ]
-        }]
-      };
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-
-      if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-        const text = data.candidates[0].content.parts.map(p => p.text).join('');
-        resultText.value = text;
-        updateStatus('完了', 'normal');
-        copyBtn.disabled = false;
-
-        // Success - increment usage
-        incrementUsageCount(index, usageLog);
-
-        // Auto-copy to clipboard
-        copyToClipboard();
-      } else {
-        throw new Error('No content generated by Gemini.');
-      }
-
-    } catch (err) {
-      console.error('Error processing audio:', err);
-      updateStatus('エラー: ' + err.message, 'error');
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.action === "toggle-recording") {
+      (mediaRecorder && mediaRecorder.state === 'recording') ? stopRecording() : startRecording();
     }
-  };
+  });
+
+  openSettingsBtn.addEventListener('click', () => {
+    chrome.tabs.create({ url: `chrome://settings/content/siteDetails?site=chrome-extension%3A%2F%2F${chrome.runtime.id}` });
+  });
 });

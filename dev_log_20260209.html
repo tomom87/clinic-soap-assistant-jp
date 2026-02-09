@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Medical Scribe 開発全記録 - 機能実装からUX改善まで</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background-color: #fcfcfc;
+        }
+
+        header {
+            text-align: center;
+            border-bottom: 3px solid #3498db;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            color: #2c3e50;
+        }
+
+        h2 {
+            font-size: 22px;
+            color: #2980b9;
+            margin-top: 40px;
+            border-left: 5px solid #2980b9;
+            padding-left: 15px;
+            background-color: #f0f7fb;
+            padding-top: 5px;
+            padding-bottom: 5px;
+        }
+
+        h3 {
+            font-size: 18px;
+            color: #34495e;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
+        }
+
+        .date {
+            font-size: 14px;
+            color: #95a5a6;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        code {
+            background-color: #eee;
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-family: Consolas, Monaco, 'Andale Mono', monospace;
+            font-size: 0.9em;
+        }
+
+        pre {
+            background-color: #2d3436;
+            color: #dfe6e9;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .section-content {
+            margin-bottom: 30px;
+            padding: 0 10px;
+        }
+
+        .feature-tag {
+            display: inline-block;
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+
+        .fix-tag {
+            display: inline-block;
+            background-color: #fff3e0;
+            color: #ef6c00;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+
+        .note {
+            background-color: #e1f5fe;
+            border-left: 5px solid #03a9f4;
+            padding: 15px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+
+        footer {
+            margin-top: 60px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 13px;
+            color: #7f8c8d;
+            text-align: center;
+        }
+
+        .timeline-arrow {
+            text-align: center;
+            font-size: 24px;
+            color: #bdc3c7;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>AI Medical Scribe 開発全記録</h1>
+        <p>診察録自動生成Chrome拡張機能の歩み</p>
+    </header>
+
+    <div class="section-content">
+        <h2>1. コア機能の実装：音声からSOAPへ</h2>
+        <span class="date">Phase 1: Initial Launch</span>
+        <p><span class="feature-tag">Feature</span>診察中の音声をブラウザ上でキャプチャし、AIを用いて直接電子カルテに貼れる形式（SOAP）に変換する基本機能を実装しました。</p>
+
+        <h3>技術スタックと方法</h3>
+        <ul>
+            <li><strong>音声キャプチャ:</strong> <code>MediaRecorder API</code> を使用。MIMEタイプ <code>audio/webm</code> で音声を収集。
+            </li>
+            <li><strong>AIエンジン:</strong> Google Gemini API (<code>gemini-2.0-flash</code> 系)
+                を採用。圧倒的な処理速度と長文コンテキストへの対応力が決め手。</li>
+            <li><strong>SOAP生成ロジック:</strong> システムプロンプトにより、日本の医療慣習（略語の使用など）に沿った整形を実施。</li>
+        </ul>
+
+        <pre>
+// 音声送信ペイロードの構造例
+const payload = {
+  contents: [{
+    parts: [
+      { text: activePrompt },
+      { inline_data: { mime_type: "audio/webm", data: base64Audio } }
+    ]
+  }]
+};</pre>
+    </div>
+
+    <div class="timeline-arrow">↓</div>
+
+    <div class="section-content">
+        <h2>2. 運用安定化：APIキー管理とリミット対策</h2>
+        <span class="date">Phase 2: Reliability</span>
+        <p><span class="feature-tag">Feature</span>無料枠での安定利用や、1日の使用制限を管理するための機能を拡充しました。</p>
+
+        <h3>主な変更点</h3>
+        <ul>
+            <li><strong>APIキーローテーション:</strong> 複数のAPIキーを登録し、エラーや制限に応じて自動で切り替えるロジックを実装。</li>
+            <li><strong>使用ログの記録:</strong> <code>chrome.storage.local</code> を使い、各キーの当日の使用回数を永続化。</li>
+            <li><strong>カスタムプロンプト:</strong> 医師独自のカルテスタイル（例：特定の項目を強調するなど）に対応できるよう、設定画面からプロンプトを編集可能に変更。</li>
+        </ul>
+    </div>
+
+    <div class="timeline-arrow">↓</div>
+
+    <div class="section-content">
+        <h2>3. ユーザビリティの革新：サイドパネルへの移行</h2>
+        <span class="date">Phase 3: Better UX</span>
+        <p><span class="feature-tag">Feature</span>「カルテを入力している最中にポップアップが閉じて録音が止まる」という致命的な問題を解消しました。</p>
+
+        <h3>Side Panel APIの導入</h3>
+        <p>ブラウザの右側に固定表示されるサイドパネル形式に移行しました。これにより、カルテタブと録音画面を同時に操作することが可能になりました。</p>
+        <div class="note">
+            <strong>ここが肝：</strong> <code>manifest.json</code> で <code>side_panel</code> を定義し、バックグラウンドスクリプトでパネルの挙動を制御。
+        </div>
+    </div>
+
+    <div class="timeline-arrow">↓</div>
+
+    <div class="section-content">
+        <h2>4. トラブルシューティング：アイコンとService Worker</h2>
+        <span class="date">Phase 4: Bug Fixes</span>
+        <p><span class="fix-tag">Fix</span>拡張機能の「顔」であるアイコンが表示されない問題と、プログラムが起動しない問題に対応しました。</p>
+
+        <h3>解決した技術的課題</h3>
+        <ul>
+            <li><strong>Service Worker欠落:</strong> <code>manifest.json</code> の <code>background</code> セクションが漏れていたため
+                Service Worker が起動せず、サイドパネルの制御が効いていなかった。</li>
+            <li><strong>アイコンのリソース修復:</strong> Mac標準の <code>sips</code> コマンドで画像をクリーンなPNGとして再書き出しし、Chromeの読み込みエラーを解消。</li>
+            <li><strong>レスポンシブなCSS:</strong> 幅の狭いサイドパネルでも「録音開始」「解析」ボタンが切れないよう、タイトな設計に見直し。</li>
+        </ul>
+    </div>
+
+    <div class="timeline-arrow">↓</div>
+
+    <div class="section-content">
+        <h2>5. 最新の更新：マイク権限の親切な誘導</h2>
+        <span class="date">Latest (v1.1.9)</span>
+        <p><span class="feature-tag">Improvement</span>マイクの許可を忘れているユーザーを迷わせないためのラストワンマイルの改善です。</p>
+
+        <h3>設定画面へのダイレクト誘導</h3>
+        <p>権限拒否を検知した際、ブラウザの「サイト設定」ページへ直接飛ぶためのリンクとボタンを表示するようにしました。URLは拡張機能IDを動的に取得して組み立てます。</p>
+        <pre>chrome://settings/content/siteDetails?site=chrome-extension://${id}</pre>
+        <p>また、権限拒否は「開発上の不具合」ではないため、ログ出力を <code>console.error</code> から <code>console.warn</code>
+            に変更。管理画面に赤いエラーマークを出さない配慮を加えました。</p>
+    </div>
+
+    <footer>
+        <p>AI Medical Scribe 開発記録 - 医師が患者と向き合う時間を最大化するために</p>
+        <p>© 2026 Development Log</p>
+    </footer>
+
+</body>
+
+</html>
