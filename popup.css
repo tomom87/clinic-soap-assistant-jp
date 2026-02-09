@@ -11,29 +11,30 @@ body {
 }
 
 .container {
-  padding: 16px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: 100vh;
   box-sizing: border-box;
 }
 
 .header-actions {
   display: flex;
-  gap: 8px;
+  gap: 12px;
 }
 
 .header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .header h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 17px;
   color: #2c3e50;
+  letter-spacing: -0.5px;
 }
 
 .icon-btn {

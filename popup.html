@@ -9,33 +9,35 @@
 </head>
 
 <body>
-  <div class="header">
-    <h2>AI Medical Scribe</h2>
-    <div class="header-actions">
-      <button id="clear-history" class="icon-btn" title="履歴をクリア"><i class="fas fa-trash-can"></i></button>
-      <button id="open-options" class="icon-btn" title="設定"><i class="fas fa-cog"></i></button>
+  <div class="container">
+    <div class="header">
+      <h2>AI Medical Scribe</h2>
+      <div class="header-actions">
+        <button id="clear-history" class="icon-btn" title="履歴をクリア"><i class="fas fa-trash-can"></i></button>
+        <button id="open-options" class="icon-btn" title="設定"><i class="fas fa-cog"></i></button>
+      </div>
     </div>
-  </div>
 
-  <div class="controls">
-    <button id="start-btn" class="btn primary">
-      <i class="fas fa-microphone"></i> 録音開始
-    </button>
-    <button id="stop-btn" class="btn danger" disabled>
-      <i class="fas fa-stop"></i> 停止・解析
-    </button>
-  </div>
+    <div class="controls">
+      <button id="start-btn" class="btn primary">
+        <i class="fas fa-microphone"></i> 録音開始
+      </button>
+      <button id="stop-btn" class="btn danger" disabled>
+        <i class="fas fa-stop"></i> 停止・解析
+      </button>
+    </div>
 
-  <div id="status-msg" class="status-msg">待機中</div>
+    <div id="status-msg" class="status-msg">待機中</div>
 
-  <div id="mic-error-container" class="mic-error-container" style="display: none;">
-    <p><i class="fas fa-exclamation-triangle"></i> マイクの許可が必要です。</p>
-    <button id="open-settings-btn" class="btn primary sm">設定画面を開く</button>
-  </div>
+    <div id="mic-error-container" class="mic-error-container" style="display: none;">
+      <p><i class="fas fa-exclamation-triangle"></i> マイクの許可が必要です。</p>
+      <button id="open-settings-btn" class="btn primary sm">設定画面を開く</button>
+    </div>
 
-  <!-- 進行中および履歴のカードが表示されるエリア -->
-  <div id="results-list" class="results-list">
-    <!-- ここに.result-cardが動的に追加されます -->
+    <!-- 進行中および履歴のカードが表示されるエリア -->
+    <div id="results-list" class="results-list">
+      <!-- ここに.result-cardが動的に追加されます -->
+    </div>
   </div>
 
   <!-- カードのテンプレート -->

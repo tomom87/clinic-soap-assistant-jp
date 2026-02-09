@@ -138,7 +138,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return new Promise((resolve, reject) => {
       chrome.storage.local.get(['apiKeys', 'usageLog'], (result) => {
         const keys = result.apiKeys || [];
-        if (!keys.some(k => k && k.trim() !== '')) return reject('APIキーが設定されていません。');
+        if (!keys.some(k => k && k.trim() !== '')) return reject('APIキーが設定されていません。右上の歯車アイコンから設定してください。');
         const today = new Date().toISOString().split('T')[0];
         let usageLog = result.usageLog || { date: today, counts: [0, 0, 0, 0] };
         if (usageLog.date !== today) usageLog = { date: today, counts: [0, 0, 0, 0] };
@@ -227,7 +227,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Events ---
   startBtn.addEventListener('click', startRecording);
   stopBtn.addEventListener('click', stopRecording);
-  openOptionsBtn.addEventListener('click', () => chrome.runtime.openOptionsPage ? chrome.runtime.openOptionsPage() : window.open(chrome.runtime.getURL('options.html')));
+  openOptionsBtn.addEventListener('click', () => {
+    chrome.tabs.create({ url: 'options.html' });
+  });
   clearHistoryBtn.addEventListener('click', () => {
     if (confirm('すべての履歴を削除しますか？')) {
       resultsList.innerHTML = '';
