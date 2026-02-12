@@ -35,6 +35,89 @@ document.addEventListener('DOMContentLoaded', async () => {
 # Output Data
 - コピーするテキストのみ（解説や挨拶は不要）`;
 
+  // --- UI Helpers ---
+  const updateStatus = (msg, type = 'normal') => {
+    statusMsg.textContent = msg;
+    statusMsg.style.color = type === 'error' ? '#e74c3c' : (type === 'processing' ? '#3498db' : '#7f8c8d');
+  };
+
+  const handleMicError = (err) => {
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      updateStatus('マイクの許可が必要です。', 'error');
+      micErrorContainer.style.display = 'block';
+    } else {
+      updateStatus('マイクエラー: ' + err.message, 'error');
+    }
+  };
+
+  const addResultCard = (text, timestamp, isPast = false) => {
+    const clone = cardTemplate.content.cloneNode(true);
+    const card = clone.querySelector('.result-card');
+    const timeSpan = clone.querySelector('.card-time');
+    const textArea = clone.querySelector('.result-text');
+    const copyBtn = clone.querySelector('.copy-btn');
+    const deleteBtn = clone.querySelector('.delete-btn');
+
+    // Store timestamp for history persistence
+    const ts = timestamp || Date.now();
+    card.dataset.timestamp = ts;
+
+    const date = new Date(ts);
+    timeSpan.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " " + date.toLocaleDateString();
+
+    if (isPast) {
+      card.classList.add('complete');
+      textArea.value = text;
+    }
+
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(textArea.value);
+        const icon = copyBtn.querySelector('i');
+        icon.className = 'fas fa-check';
+        setTimeout(() => icon.className = 'fas fa-copy', 1500);
+      } catch (err) {
+        console.error('Failed to copy keys: ', err);
+        updateStatus('コピーに失敗しました', 'error');
+      }
+    });
+
+    deleteBtn.addEventListener('click', () => {
+      card.remove();
+      saveHistory(); // Save immediately after deletion
+    });
+
+    resultsList.prepend(card);
+    return card;
+  };
+
+  const saveHistory = async () => {
+    const cards = document.querySelectorAll('.result-card.complete');
+    const history = Array.from(cards).map(card => {
+      const text = card.querySelector('.result-text').value;
+      // Use existing dataset timestamp if available, else current time (fallback)
+      const timestamp = parseInt(card.dataset.timestamp) || Date.now();
+      return { text, timestamp };
+    }).slice(0, 100);
+
+    chrome.storage.local.set({ history: history.reverse() });
+  };
+
+  const updateCardContent = async (card, text) => {
+    card.classList.add('complete');
+    const textArea = card.querySelector('.result-text');
+    textArea.value = text;
+    saveHistory();
+
+    try {
+      await navigator.clipboard.writeText(text);
+      updateStatus('最新の解析結果をコピーしました');
+    } catch (err) {
+      console.error('Auto-copy failed:', err);
+      updateStatus('自動コピーに失敗しました', 'error');
+    }
+  };
+
   // --- API Key Management ---
   const getApiKey = async () => {
     return new Promise((resolve, reject) => {
@@ -126,6 +209,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
+  // --- Initialize: Load History and Request Permission ---
+  const loadHistory = async () => {
+    const result = await new Promise(resolve => chrome.storage.local.get({ history: [] }, resolve));
+    result.history.forEach(item => {
+      addResultCard(item.text, item.timestamp, true);
+    });
+  };
+
+  const requestMicPermission = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop());
+      updateStatus('待機中');
+      micErrorContainer.style.display = 'none';
+    } catch (err) {
+      console.warn('Microphone permission status:', err.name || err);
+      handleMicError(err);
+    }
+  };
+
   // --- Events ---
   startBtn.addEventListener('click', startRecording);
   stopBtn.addEventListener('click', stopRecording);
@@ -149,7 +252,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.tabs.create({ url: `chrome://settings/content/siteDetails?site=chrome-extension%3A%2F%2F${chrome.runtime.id}` });
   });
 
-  // --- Final Initialization (Ensure all functions are defined) ---
+  // --- Final Execution ---
   await loadHistory();
   requestMicPermission();
 });
