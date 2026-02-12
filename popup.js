@@ -35,104 +35,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 # Output Data
 - コピーするテキストのみ（解説や挨拶は不要）`;
 
-  // --- Initialize: Load History and Request Permission ---
-  const loadHistory = async () => {
-    const result = await new Promise(resolve => chrome.storage.local.get({ history: [] }, resolve));
-    // 読み込み時は古い順にaddResultCard(prepend)することで最新が一番上にくる
-    result.history.forEach(item => {
-      addResultCard(item.text, item.timestamp, true);
-    });
-  };
-
-  const requestMicPermission = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(track => track.stop());
-      updateStatus('待機中');
-      micErrorContainer.style.display = 'none';
-    } catch (err) {
-      console.warn('Microphone permission status:', err.name || err);
-      handleMicError(err);
-    }
-  };
-
-  await loadHistory();
-  requestMicPermission();
-
-  // --- UI Helpers ---
-  const updateStatus = (msg, type = 'normal') => {
-    statusMsg.textContent = msg;
-    statusMsg.style.color = type === 'error' ? '#e74c3c' : (type === 'processing' ? '#3498db' : '#7f8c8d');
-  };
-
-  const handleMicError = (err) => {
-    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-      updateStatus('マイクの許可が必要です。', 'error');
-      micErrorContainer.style.display = 'block';
-    } else {
-      updateStatus('マイクエラー: ' + err.message, 'error');
-    }
-  };
-
-  const addResultCard = (text, timestamp, isPast = false) => {
-    const clone = cardTemplate.content.cloneNode(true);
-    const card = clone.querySelector('.result-card');
-    const timeSpan = clone.querySelector('.card-time');
-    const textArea = clone.querySelector('.result-text');
-    const copyBtn = clone.querySelector('.copy-btn');
-    const deleteBtn = clone.querySelector('.delete-btn');
-
-    const date = timestamp ? new Date(timestamp) : new Date();
-    timeSpan.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " " + date.toLocaleDateString();
-
-    if (isPast) {
-      card.classList.add('complete');
-      textArea.value = text;
-    }
-
-    copyBtn.addEventListener('click', () => {
-      textArea.select();
-      document.execCommand('copy');
-      const icon = copyBtn.querySelector('i');
-      icon.className = 'fas fa-check';
-      setTimeout(() => icon.className = 'fas fa-copy', 1500);
-    });
-
-    deleteBtn.addEventListener('click', () => {
-      card.remove();
-      saveHistory();
-    });
-
-    resultsList.prepend(card);
-    return card;
-  };
-
-  const saveHistory = async () => {
-    const cards = document.querySelectorAll('.result-card.complete');
-    const history = Array.from(cards).map(card => {
-      // timeSpanからDateを復元するのは不安定なので、本来はdata属性に持つべき
-      // ここでは簡略化のため、現在のカードのテキストのみを抽出
-      const text = card.querySelector('.result-text').value;
-      // 表示文字列からタイムスタンプを推測（簡易的）
-      return { text, timestamp: Date.now() }; // 正確にはカード作成時の時間を保持すべき
-    }).slice(0, 100); // 最新100件に制限
-
-    // ストレージには最新が末尾に来るように保存（ロード時にprependするため）
-    chrome.storage.local.set({ history: history.reverse() });
-  };
-
-  const updateCardContent = (card, text) => {
-    card.classList.add('complete');
-    const textArea = card.querySelector('.result-text');
-    textArea.value = text;
-    saveHistory();
-
-    // 最新の結果を自動コピー
-    textArea.select();
-    document.execCommand('copy');
-    updateStatus('最新の解析結果をコピーしました');
-  };
-
   // --- API Key Management ---
   const getApiKey = async () => {
     return new Promise((resolve, reject) => {
@@ -246,4 +148,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   openSettingsBtn.addEventListener('click', () => {
     chrome.tabs.create({ url: `chrome://settings/content/siteDetails?site=chrome-extension%3A%2F%2F${chrome.runtime.id}` });
   });
+
+  // --- Final Initialization (Ensure all functions are defined) ---
+  await loadHistory();
+  requestMicPermission();
 });
