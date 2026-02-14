@@ -191,9 +191,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         })
       });
 
-      if (!response.ok) throw new Error(`API Error: ${response.status}`);
       const data = await response.json();
-      const text = data.candidates[0].content.parts.map(p => p.text).join('');
+      if (!response.ok) {
+        const apiMessage = data?.error?.message;
+        throw new Error(apiMessage ? `API Error: ${apiMessage}` : `API Error: ${response.status}`);
+      }
+
+      const parts = data?.candidates?.[0]?.content?.parts;
+      if (!Array.isArray(parts)) {
+        const blockedReason = data?.promptFeedback?.blockReason;
+        if (blockedReason) {
+          throw new Error(`生成がブロックされました: ${blockedReason}`);
+        }
+        throw new Error('APIレスポンス形式が不正です。');
+      }
+      const text = parts.map(p => p.text).join('').trim();
+      if (!text) throw new Error('生成テキストが空です。');
 
       updateCardContent(card, text);
       usageLog.counts[index]++;
@@ -201,6 +214,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     } catch (err) {
       console.error('Process error:', err);
+      updateStatus(`エラー: ${err.message}`, 'error');
       const spinner = card.querySelector('.loading-spinner');
       if (spinner) {
         spinner.innerHTML = `<i class="fas fa-circle-exclamation"></i> エラー: ${err.message}`;
