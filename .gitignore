@@ -1,12 +1,17 @@
-# OS files
+# OS generated files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# Developer files
-*.log
-.vscode/
-.idea/
-
-# Extension specific
+# Extension packaging
 *.zip
 *.crx
+
+# Node (if added later)
+node_modules/
+npm-debug.log
+yarn-error.log

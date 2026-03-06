@@ -110,8 +110,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     saveHistory();
 
     try {
-      await navigator.clipboard.writeText(text);
-      updateStatus('最新の解析結果をコピーしました');
+      // ユーザーのフォーカスが外れてタイムアウトした場合でもコピーできるようBackground経由で実行
+      const response = await chrome.runtime.sendMessage({ action: 'write-to-clipboard', text: text });
+      if (response && response.success) {
+        updateStatus('最新の解析結果をコピーしました');
+      } else {
+        throw new Error(response ? response.error : 'No response from background');
+      }
     } catch (err) {
       console.error('Auto-copy failed:', err);
       updateStatus('自動コピーに失敗しました', 'error');

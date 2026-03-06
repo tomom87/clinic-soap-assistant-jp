@@ -10,7 +10,9 @@
   },
   "permissions": [
     "storage",
-    "sidePanel"
+    "sidePanel",
+    "offscreen",
+    "clipboardWrite"
   ],
   "background": {
     "service_worker": "background.js"
