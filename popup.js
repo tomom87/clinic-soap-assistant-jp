@@ -119,7 +119,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     } catch (err) {
       console.error('Auto-copy failed:', err);
-      updateStatus('自動コピーに失敗しました', 'error');
+      updateStatus('自動コピーに失敗: ' + err.message, 'error');
     }
   };
 
