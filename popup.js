@@ -11,7 +11,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let mediaRecorder;
   let audioChunks = [];
-  const MODEL_NAME = 'gemini-2.5-flash';
+  const MODEL_NAME = 'gemini-3.1-flash-lite-preview';
+  const getErrorMessage = (err) => {
+    if (!err) return '不明なエラーが発生しました。';
+    if (typeof err === 'string') return err;
+    if (err instanceof Error && err.message) return err.message;
+    return String(err);
+  };
   const DEFAULT_PROMPT = `# Role
 あなたは優秀な日本の診療クラークです。提供される「医師と患者の診察音声」を解析し、日本の標準的な電子カルテ（SOAP形式）に準拠した診療録を作成してください。
 
@@ -42,11 +48,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   const handleMicError = (err) => {
+    const message = getErrorMessage(err);
     if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
       updateStatus('マイクの許可が必要です。', 'error');
       micErrorContainer.style.display = 'block';
     } else {
-      updateStatus('マイクエラー: ' + err.message, 'error');
+      updateStatus('マイクエラー: ' + message, 'error');
     }
   };
 
@@ -119,7 +126,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     } catch (err) {
       console.error('Auto-copy failed:', err);
-      updateStatus('自動コピーに失敗: ' + err.message, 'error');
+      updateStatus('自動コピーに失敗: ' + getErrorMessage(err), 'error');
     }
   };
 
@@ -188,13 +195,21 @@ document.addEventListener('DOMContentLoaded', async () => {
       const storage = await new Promise(resolve => chrome.storage.local.get({ customPrompt: null }, resolve));
       const prompt = storage.customPrompt || DEFAULT_PROMPT;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${key}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "audio/webm", data: base64Audio } }] }]
-        })
-      });
+      let response;
+      try {
+        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${key}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "audio/webm", data: base64Audio } }] }]
+          })
+        });
+      } catch (networkErr) {
+        if (networkErr instanceof TypeError) {
+          throw new Error('通信に失敗しました。manifest の host_permissions / ネットワーク接続 / APIキー設定を確認してください。');
+        }
+        throw networkErr;
+      }
 
       const data = await response.json();
       if (!response.ok) {
@@ -219,10 +234,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     } catch (err) {
       console.error('Process error:', err);
-      updateStatus(`エラー: ${err.message}`, 'error');
+      const message = getErrorMessage(err);
+      updateStatus(`エラー: ${message}`, 'error');
       const spinner = card.querySelector('.loading-spinner');
       if (spinner) {
-        spinner.innerHTML = `<i class="fas fa-circle-exclamation"></i> エラー: ${err.message}`;
+        spinner.innerHTML = `<i class="fas fa-circle-exclamation"></i> エラー: ${message}`;
         spinner.style.color = '#e74c3c';
       }
     }
