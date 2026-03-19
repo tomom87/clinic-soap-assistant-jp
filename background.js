@@ -18,54 +18,72 @@ chrome.commands.onCommand.addListener((command) => {
 });
 
 // --- Offscreen Document for Clipboard Writing ---
-let creating; // A global promise to avoid race conditions
+let creating; // Promise to avoid race conditions during creation
+
 async function setupOffscreenDocument(path) {
-  // `hasDocument` Is the standard way in Manifest V3 to check if it exists
-  const hasDocument = await chrome.offscreen.hasDocument();
-  if (hasDocument) {
+  // Check if document already exists
+  if (await chrome.offscreen.hasDocument()) {
     return;
   }
 
-  // Prevent multiple calls from trying to create the document at the exact same time
+  // Handle concurrent creation requests
   if (creating) {
     await creating;
     return;
   }
 
-  creating = chrome.offscreen.createDocument({
-    url: path,
-    reasons: ['CLIPBOARD'],
-    justification: 'Copying generated text to clipboard automatically after long API response'
-  });
+  console.log("Creating offscreen document...");
+  try {
+    creating = chrome.offscreen.createDocument({
+      url: path,
+      reasons: ['CLIPBOARD'],
+      justification: 'Automated clipboard copy of medical records to EHR after long AI processing'
+    });
+    await creating;
+  } catch (err) {
+    console.error("Failed to create offscreen document:", err);
+    throw err;
+  } finally {
+    creating = null;
+  }
+}
 
-  await creating;
-  creating = null;
+async function handleWriteToClipboard(text, sendResponse) {
+  try {
+    await setupOffscreenDocument('offscreen.html');
+
+    // Retry sending message to offscreen, as it might not be ready the microsecond it's created
+    let success = false;
+    for (let i = 0; i < 5; i++) {
+      try {
+        await chrome.runtime.sendMessage({
+          type: 'copy-data-to-clipboard',
+          target: 'offscreen',
+          data: text
+        });
+        success = true;
+        break;
+      } catch (e) {
+        console.warn(`Retry ${i + 1} to contact offscreen doc...`);
+        await new Promise(r => setTimeout(r, 200)); // Wait 200ms
+      }
+    }
+
+    if (success) {
+      sendResponse({ success: true });
+    } else {
+      throw new Error("オフスクリーンドキュメントへの通信に失敗しました（リトライ上限到達）");
+    }
+  } catch (error) {
+    console.error('Background clipboard error:', error);
+    sendResponse({ success: false, error: error.message || String(error) });
+  }
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'write-to-clipboard') {
-    (async () => {
-      try {
-        await setupOffscreenDocument('offscreen.html');
-        // Send message to the offscreen document
-        chrome.runtime.sendMessage({
-          type: 'copy-data-to-clipboard',
-          target: 'offscreen',
-          data: msg.text
-        });
-
-        // Wait briefly for the offscreen document to process the copy
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        // Optionally close the offscreen document to save memory
-        // await chrome.offscreen.closeDocument();
-
-        sendResponse({ success: true });
-      } catch (error) {
-        console.error('Offscreen clipboard error:', error);
-        sendResponse({ success: false, error: String(error.message || error) });
-      }
-    })();
-    return true; // Keep message channel open for async response
+    handleWriteToClipboard(msg.text, sendResponse);
+    return true; // Keep channel open for async sendResponse
   }
 });
+
