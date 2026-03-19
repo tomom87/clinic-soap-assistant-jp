@@ -53,27 +53,29 @@ async function handleWriteToClipboard(text, sendResponse) {
     await setupOffscreenDocument('offscreen.html');
 
     // Retry sending message to offscreen, as it might not be ready the microsecond it's created
-    let success = false;
+    let lastError;
     for (let i = 0; i < 5; i++) {
       try {
-        await chrome.runtime.sendMessage({
+        const result = await chrome.runtime.sendMessage({
           type: 'copy-data-to-clipboard',
           target: 'offscreen',
           data: text
         });
-        success = true;
-        break;
+        if (result && result.success) {
+          sendResponse({ success: true });
+          return;
+        } else {
+          lastError = result?.error || 'クリップボード書込に失敗しました';
+        }
+        break; // Message was delivered but clipboard failed — no need to retry
       } catch (e) {
+        lastError = e.message;
         console.warn(`Retry ${i + 1} to contact offscreen doc...`);
         await new Promise(r => setTimeout(r, 200)); // Wait 200ms
       }
     }
 
-    if (success) {
-      sendResponse({ success: true });
-    } else {
-      throw new Error("オフスクリーンドキュメントへの通信に失敗しました（リトライ上限到達）");
-    }
+    throw new Error(lastError || "オフスクリーンドキュメントへの通信に失敗しました（リトライ上限到達）");
   } catch (error) {
     console.error('Background clipboard error:', error);
     sendResponse({ success: false, error: error.message || String(error) });

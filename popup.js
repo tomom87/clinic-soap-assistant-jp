@@ -80,13 +80,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     copyBtn.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(textArea.value);
-        const icon = copyBtn.querySelector('i');
-        icon.className = 'fas fa-check';
-        setTimeout(() => icon.className = 'fas fa-copy', 1500);
       } catch (err) {
-        console.error('Failed to copy keys: ', err);
-        updateStatus('コピーに失敗しました', 'error');
+        // サイドパネルにフォーカスがない場合等、offscreen経由でフォールバック
+        try {
+          const response = await chrome.runtime.sendMessage({ action: 'write-to-clipboard', text: textArea.value });
+          if (!response || !response.success) {
+            throw new Error(response?.error || 'コピーに失敗しました');
+          }
+        } catch (fallbackErr) {
+          console.error('Copy failed:', fallbackErr);
+          updateStatus('コピーに失敗しました', 'error');
+          return;
+        }
       }
+      const icon = copyBtn.querySelector('i');
+      icon.className = 'fas fa-check';
+      setTimeout(() => icon.className = 'fas fa-copy', 1500);
     });
 
     deleteBtn.addEventListener('click', () => {
@@ -228,7 +237,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const text = parts.map(p => p.text).join('').trim();
       if (!text) throw new Error('生成テキストが空です。');
 
-      updateCardContent(card, text);
+      await updateCardContent(card, text);
       usageLog.counts[index]++;
       chrome.storage.local.set({ usageLog });
 
