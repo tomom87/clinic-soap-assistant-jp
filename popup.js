@@ -11,7 +11,34 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let mediaRecorder;
   let audioChunks = [];
+  let activeStream = null; // 録音停止時にトラックを確実に止めるための参照
   const MODEL_NAME = 'gemini-3.1-flash-lite-preview';
+  // 音声キャプチャ制約：音声認識用途なのでモノラル/16kHz/低ビットレートに固定
+  const AUDIO_CONSTRAINTS = {
+    audio: {
+      channelCount: 1,
+      sampleRate: 16000,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    }
+  };
+  const RECORDER_OPTIONS = {
+    mimeType: 'audio/webm;codecs=opus',
+    audioBitsPerSecond: 24000
+  };
+  const RECORDER_TIMESLICE_MS = 1000; // 1秒ごとにチャンクを吐き出し、stop 時のBlob化を軽量化
+
+  // 大きな Blob を高速に base64 化する（FileReader.readAsDataURL より速く、メモリも安定）
+  const blobToBase64Fast = async (blob) => {
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    let binary = '';
+    const CHUNK = 0x8000; // 32KB ずつ fromCharCode.apply
+    for (let i = 0; i < buf.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
+    }
+    return btoa(binary);
+  };
   const getErrorMessage = (err) => {
     if (!err) return '不明なエラーが発生しました。';
     if (typeof err === 'string') return err;
@@ -159,28 +186,44 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Recording Logic ---
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia(AUDIO_CONSTRAINTS);
+      activeStream = stream;
       micErrorContainer.style.display = 'none';
-      mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      // 環境が指定 mimeType に対応していなければデフォルトにフォールバック
+      let recorderOpts = RECORDER_OPTIONS;
+      if (typeof MediaRecorder.isTypeSupported === 'function'
+          && !MediaRecorder.isTypeSupported(RECORDER_OPTIONS.mimeType)) {
+        recorderOpts = { audioBitsPerSecond: RECORDER_OPTIONS.audioBitsPerSecond };
+      }
+      mediaRecorder = new MediaRecorder(stream, recorderOpts);
       audioChunks = [];
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunks.push(event.data);
+        if (event.data && event.data.size > 0) audioChunks.push(event.data);
       };
 
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = async () => {
-          const base64Audio = reader.result.split(',')[1];
+        try {
+          const mimeType = mediaRecorder.mimeType || 'audio/webm';
+          const audioBlob = new Blob(audioChunks, { type: mimeType });
           const newCard = addResultCard('', Date.now(), false);
-          processAudio(base64Audio, newCard);
-        };
-        stream.getTracks().forEach(track => track.stop());
+          const base64Audio = await blobToBase64Fast(audioBlob);
+          // API の inline_data.mime_type は codec パラメータ無しの方が安全
+          const pureMime = mimeType.split(';')[0];
+          processAudio(base64Audio, newCard, pureMime);
+        } catch (err) {
+          console.error('Post-stop processing error:', err);
+          updateStatus('音声変換に失敗: ' + getErrorMessage(err), 'error');
+        } finally {
+          if (activeStream) {
+            activeStream.getTracks().forEach(track => track.stop());
+            activeStream = null;
+          }
+        }
       };
 
-      mediaRecorder.start();
+      // timeslice を指定して録音中にチャンクを分割取得（stop 時のブロッキングを回避）
+      mediaRecorder.start(RECORDER_TIMESLICE_MS);
       updateStatus('録音中...', 'processing');
       startBtn.disabled = true;
       stopBtn.disabled = false;
@@ -198,21 +241,157 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
-  const processAudio = async (base64Audio, card) => {
+  // SSE / JSON 配列どちらで返ってきても解釈できる寛容なストリームパーサ
+  const consumeGeminiStream = async (response, onDelta) => {
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    const isSSE = contentType.includes('event-stream');
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let sseBuffer = '';
+    let rawAll = '';
+    let accumulated = '';
+    let blockedReason = null;
+    let finishReason = null;
+
+    const handleJson = (obj) => {
+      if (!obj) return;
+      if (obj.promptFeedback?.blockReason) blockedReason = obj.promptFeedback.blockReason;
+      const cand = obj.candidates?.[0];
+      if (cand?.finishReason) finishReason = cand.finishReason;
+      const parts = cand?.content?.parts;
+      if (Array.isArray(parts)) {
+        const delta = parts.map(p => p.text || '').join('');
+        if (delta) {
+          accumulated += delta;
+          onDelta(accumulated, delta);
+        }
+      }
+    };
+
+    // SSE 用: CRLF 正規化してから \n\n 区切りで 1 イベントずつ処理
+    const drainSSE = (flush = false) => {
+      sseBuffer = sseBuffer.replace(/\r\n/g, '\n');
+      let sep;
+      while ((sep = sseBuffer.indexOf('\n\n')) >= 0) {
+        const rawEvent = sseBuffer.slice(0, sep);
+        sseBuffer = sseBuffer.slice(sep + 2);
+        const payload = rawEvent
+          .split('\n')
+          .filter(l => l.startsWith('data:'))
+          .map(l => l.slice(5).replace(/^\s/, ''))
+          .join('\n')
+          .trim();
+        if (!payload || payload === '[DONE]') continue;
+        try { handleJson(JSON.parse(payload)); }
+        catch (e) { console.warn('SSE parse skipped:', e.message, payload.slice(0, 200)); }
+      }
+      if (flush && sseBuffer.trim()) {
+        // flush 時の末尾残留（通常は空）
+        const payload = sseBuffer.split('\n').filter(l => l.startsWith('data:'))
+          .map(l => l.slice(5).replace(/^\s/, '')).join('\n').trim();
+        if (payload && payload !== '[DONE]') {
+          try { handleJson(JSON.parse(payload)); } catch {}
+        }
+        sseBuffer = '';
+      }
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      rawAll += chunk;
+      if (isSSE) {
+        sseBuffer += chunk;
+        drainSSE(false);
+      }
+    }
+    const tail = decoder.decode();
+    if (tail) {
+      rawAll += tail;
+      if (isSSE) { sseBuffer += tail; }
+    }
+    if (isSSE) drainSSE(true);
+
+    // フォールバック: SSE と見なしたのに何も取れない or そもそもJSON配列で返ってきた
+    if (!accumulated) {
+      const trimmed = rawAll.trim();
+      try {
+        if (trimmed.startsWith('[')) {
+          // Gemini の非SSEストリーミング: JSON配列
+          const arr = JSON.parse(trimmed);
+          if (Array.isArray(arr)) arr.forEach(handleJson);
+        } else if (trimmed.startsWith('{')) {
+          handleJson(JSON.parse(trimmed));
+        } else {
+          // "data: {...}" 形式だが Content-Type が違うケース
+          const lines = trimmed.split(/\r?\n/).filter(l => l.startsWith('data:'));
+          for (const l of lines) {
+            const p = l.slice(5).trim();
+            if (!p || p === '[DONE]') continue;
+            try { handleJson(JSON.parse(p)); } catch {}
+          }
+        }
+      } catch (e) {
+        console.warn('Fallback JSON parse failed:', e.message);
+      }
+    }
+
+    // デバッグ: 何も取れない場合、原文の先頭を開発者ツールに残す
+    if (!accumulated) {
+      console.warn('[AI Medical Scribe] stream produced no text.',
+        { contentType, bytes: rawAll.length, head: rawAll.slice(0, 500) });
+    }
+
+    return { text: accumulated, blockedReason, finishReason, contentType, raw: rawAll };
+  };
+
+  // 非ストリーミング呼び出し（フォールバック用）
+  const callGenerateContentOnce = async (key, body) => {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${key}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }
+    );
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const apiMessage = data?.error?.message;
+      throw new Error(apiMessage ? `API Error: ${apiMessage}` : `API Error: ${res.status}`);
+    }
+    const parts = data?.candidates?.[0]?.content?.parts;
+    const finishReason = data?.candidates?.[0]?.finishReason;
+    const blockedReason = data?.promptFeedback?.blockReason;
+    const text = Array.isArray(parts) ? parts.map(p => p.text || '').join('').trim() : '';
+    return { text, blockedReason, finishReason };
+  };
+
+  const processAudio = async (base64Audio, card, mimeType = 'audio/webm') => {
+    const textArea = card.querySelector('.result-text');
+    const spinner = card.querySelector('.loading-spinner');
     try {
       const { key, index, usageLog } = await getApiKey();
       const storage = await new Promise(resolve => chrome.storage.local.get({ customPrompt: null }, resolve));
       const prompt = storage.customPrompt || DEFAULT_PROMPT;
 
+      const body = JSON.stringify({
+        contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Audio } }] }],
+        generationConfig: {
+          temperature: 0.2,
+          topP: 0.9,
+          maxOutputTokens: 1024
+        }
+      });
+
       let response;
       try {
-        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${key}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "audio/webm", data: base64Audio } }] }]
-          })
-        });
+        response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:streamGenerateContent?alt=sse&key=${key}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+            body
+          }
+        );
       } catch (networkErr) {
         if (networkErr instanceof TypeError) {
           throw new Error('通信に失敗しました。manifest の host_permissions / ネットワーク接続 / APIキー設定を確認してください。');
@@ -220,24 +399,50 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw networkErr;
       }
 
-      const data = await response.json();
       if (!response.ok) {
-        const apiMessage = data?.error?.message;
+        // ストリームではなく JSON エラーが返ってくることがある
+        let apiMessage;
+        try {
+          const errData = await response.json();
+          apiMessage = errData?.error?.message;
+        } catch {}
         throw new Error(apiMessage ? `API Error: ${apiMessage}` : `API Error: ${response.status}`);
       }
 
-      const parts = data?.candidates?.[0]?.content?.parts;
-      if (!Array.isArray(parts)) {
-        const blockedReason = data?.promptFeedback?.blockReason;
-        if (blockedReason) {
-          throw new Error(`生成がブロックされました: ${blockedReason}`);
-        }
-        throw new Error('APIレスポンス形式が不正です。');
-      }
-      const text = parts.map(p => p.text).join('').trim();
-      if (!text) throw new Error('生成テキストが空です。');
+      // 最初の delta が来た瞬間にスピナーを消してカードを表示状態へ
+      card.classList.add('complete');
+      updateStatus('解析中（ストリーミング受信）', 'processing');
 
-      await updateCardContent(card, text);
+      let firstDeltaShown = false;
+      let { text, blockedReason, finishReason } = await consumeGeminiStream(response, (accumulated) => {
+        if (!firstDeltaShown && spinner) {
+          spinner.style.display = 'none';
+          firstDeltaShown = true;
+        }
+        textArea.value = accumulated;
+      });
+
+      // ストリームから何も取り出せなかった場合、安全ネットとして非ストリーミングで再試行
+      if ((!text || !text.trim()) && !blockedReason) {
+        console.warn('[AI Medical Scribe] streaming returned empty; retrying with non-streaming endpoint');
+        updateStatus('ストリームが空、通常リクエストで再試行中', 'processing');
+        const fb = await callGenerateContentOnce(key, body);
+        text = fb.text;
+        blockedReason = fb.blockedReason || blockedReason;
+        finishReason = fb.finishReason || finishReason;
+        if (text) textArea.value = text;
+      }
+
+      if (!text || !text.trim()) {
+        if (blockedReason) throw new Error(`生成がブロックされました: ${blockedReason}`);
+        if (finishReason && finishReason !== 'STOP') {
+          throw new Error(`生成が途中終了しました (finishReason: ${finishReason})`);
+        }
+        throw new Error('生成テキストが空です。');
+      }
+
+      // 最終テキストの確定・履歴保存・自動コピー
+      await updateCardContent(card, text.trim());
       usageLog.counts[index]++;
       chrome.storage.local.set({ usageLog });
 
@@ -245,8 +450,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.error('Process error:', err);
       const message = getErrorMessage(err);
       updateStatus(`エラー: ${message}`, 'error');
-      const spinner = card.querySelector('.loading-spinner');
+      // CSS の .complete 状態では spinner が非表示になるため、エラー時は complete を剥がす
+      card.classList.remove('complete');
       if (spinner) {
+        spinner.style.display = '';
         spinner.innerHTML = `<i class="fas fa-circle-exclamation"></i> エラー: ${message}`;
         spinner.style.color = '#e74c3c';
       }
