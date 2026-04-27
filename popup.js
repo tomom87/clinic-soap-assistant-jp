@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let mediaRecorder;
   let audioChunks = [];
   let activeStream = null; // 録音停止時にトラックを確実に止めるための参照
-  const MODEL_NAME = 'gemini-2.5-flash';
+  const MODEL_NAME = 'gemini-3.1-flash-lite-preview';
   // 音声キャプチャ制約：音声認識用途なのでモノラル/16kHz/低ビットレートに固定
   const AUDIO_CONSTRAINTS = {
     audio: {
@@ -368,6 +368,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const processAudio = async (base64Audio, card, mimeType = 'audio/webm') => {
     const textArea = card.querySelector('.result-text');
     const spinner = card.querySelector('.loading-spinner');
+    // 再試行時にエラー表示・部分テキスト・カード状態をリセット
+    if (spinner) {
+      spinner.style.display = '';
+      spinner.style.color = '';
+      spinner.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> 解析中...';
+    }
+    if (textArea) textArea.value = '';
+    card.classList.remove('complete');
     try {
       const { key, index, usageLog } = await getApiKey();
       const storage = await new Promise(resolve => chrome.storage.local.get({ customPrompt: null }, resolve));
@@ -454,8 +462,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       card.classList.remove('complete');
       if (spinner) {
         spinner.style.display = '';
-        spinner.innerHTML = `<i class="fas fa-circle-exclamation"></i> エラー: ${message}`;
         spinner.style.color = '#e74c3c';
+        // textContent でメッセージを安全に表示し、再試行ボタンは関数で組み立てる
+        spinner.innerHTML = '';
+        const errLine = document.createElement('div');
+        errLine.innerHTML = '<i class="fas fa-circle-exclamation"></i> ';
+        errLine.appendChild(document.createTextNode('エラー: ' + message));
+        spinner.appendChild(errLine);
+
+        const retryBtn = document.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.className = 'btn primary sm retry-btn';
+        retryBtn.innerHTML = '<i class="fas fa-rotate-right"></i> 再試行';
+        retryBtn.addEventListener('click', () => {
+          // 録音時の音声データを保持しているので、API のみ再呼び出しすれば良い
+          processAudio(base64Audio, card, mimeType);
+        });
+        spinner.appendChild(retryBtn);
       }
     }
   };
