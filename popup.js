@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let mediaRecorder;
   let audioChunks = [];
   let activeStream = null; // 録音停止時にトラックを確実に止めるための参照
-  const MODEL_NAME = 'gemini-3.1-flash-lite-preview';
+  const MODEL_NAME = 'gemini-2.5-flash';
   // 音声キャプチャ制約：音声認識用途なのでモノラル/16kHz/低ビットレートに固定
   const AUDIO_CONSTRAINTS = {
     audio: {
