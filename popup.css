@@ -94,6 +94,16 @@ body {
   background-color: #c0392b;
 }
 
+/* APIエラー後の停止・解析ボタンが「再試行」に切り替わるときのスタイル */
+.btn.retry-mode {
+  background-color: #f39c12;
+  color: white;
+}
+
+.btn.retry-mode:hover:not(:disabled) {
+  background-color: #d68910;
+}
+
 .btn.sm {
   padding: 4px 12px;
   font-size: 12px;
@@ -230,13 +240,6 @@ textarea:focus {
   color: #3498db;
   font-size: 13px;
   font-weight: 600;
-}
-
-.loading-spinner .retry-btn {
-  margin-top: 10px;
-  display: inline-flex;
-  width: auto;
-  padding: 6px 14px;
 }
 
 .result-text {

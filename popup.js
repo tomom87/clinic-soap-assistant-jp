@@ -12,6 +12,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   let mediaRecorder;
   let audioChunks = [];
   let activeStream = null; // 録音停止時にトラックを確実に止めるための参照
+  // 直近のAPI失敗時の音声を保持。停止・解析ボタンが「再試行」モードのときに使用
+  let pendingRetry = null;
   const MODEL_NAME = 'gemini-3.1-flash-lite-preview';
   // 音声キャプチャ制約：音声認識用途なのでモノラル/16kHz/低ビットレートに固定
   const AUDIO_CONSTRAINTS = {
@@ -72,6 +74,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   const updateStatus = (msg, type = 'normal') => {
     statusMsg.textContent = msg;
     statusMsg.style.color = type === 'error' ? '#e74c3c' : (type === 'processing' ? '#3498db' : '#7f8c8d');
+  };
+
+  // 停止・解析ボタンの3モード切替: idle / recording / retry
+  // retry: 直近の解析がAPIエラーで失敗した状態。クリックで保持済みの音声を再送する。
+  const setStopBtnMode = (mode) => {
+    stopBtn.dataset.mode = mode;
+    stopBtn.classList.remove('danger', 'retry-mode');
+    if (mode === 'retry') {
+      stopBtn.classList.add('retry-mode');
+      stopBtn.disabled = false;
+      stopBtn.innerHTML = '<i class="fas fa-rotate-right"></i> 再試行';
+    } else {
+      stopBtn.classList.add('danger');
+      stopBtn.disabled = (mode !== 'recording');
+      stopBtn.innerHTML = '<i class="fas fa-stop"></i> 停止・解析';
+    }
   };
 
   const handleMicError = (err) => {
@@ -222,11 +240,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       };
 
+      // 新しい録音を始めたら、前回の失敗（再試行モード）は破棄する
+      pendingRetry = null;
       // timeslice を指定して録音中にチャンクを分割取得（stop 時のブロッキングを回避）
       mediaRecorder.start(RECORDER_TIMESLICE_MS);
       updateStatus('録音中...', 'processing');
       startBtn.disabled = true;
-      stopBtn.disabled = false;
+      setStopBtnMode('recording');
     } catch (err) {
       handleMicError(err);
     }
@@ -237,7 +257,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       mediaRecorder.stop();
       updateStatus('解析リクエストを送信しました');
       startBtn.disabled = false;
-      stopBtn.disabled = true;
+      setStopBtnMode('idle');
     }
   };
 
@@ -453,6 +473,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       await updateCardContent(card, text.trim());
       usageLog.counts[index]++;
       chrome.storage.local.set({ usageLog });
+      // 成功したら保留中のリトライを破棄
+      pendingRetry = null;
 
     } catch (err) {
       console.error('Process error:', err);
@@ -463,22 +485,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (spinner) {
         spinner.style.display = '';
         spinner.style.color = '#e74c3c';
-        // textContent でメッセージを安全に表示し、再試行ボタンは関数で組み立てる
+        // textContent でメッセージを安全に表示
         spinner.innerHTML = '';
         const errLine = document.createElement('div');
         errLine.innerHTML = '<i class="fas fa-circle-exclamation"></i> ';
         errLine.appendChild(document.createTextNode('エラー: ' + message));
         spinner.appendChild(errLine);
-
-        const retryBtn = document.createElement('button');
-        retryBtn.type = 'button';
-        retryBtn.className = 'btn primary sm retry-btn';
-        retryBtn.innerHTML = '<i class="fas fa-rotate-right"></i> 再試行';
-        retryBtn.addEventListener('click', () => {
-          // 録音時の音声データを保持しているので、API のみ再呼び出しすれば良い
-          processAudio(base64Audio, card, mimeType);
-        });
-        spinner.appendChild(retryBtn);
+      }
+      // 録音中でなければ、上部の停止・解析ボタンを「再試行」モードに切り替える
+      // （録音中なら、新しい録音の停止優先で、本失敗は破棄）
+      const isRecording = mediaRecorder && mediaRecorder.state === 'recording';
+      if (!isRecording) {
+        pendingRetry = { base64Audio, card, mimeType };
+        setStopBtnMode('retry');
       }
     }
   };
@@ -505,7 +524,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // --- Events ---
   startBtn.addEventListener('click', startRecording);
-  stopBtn.addEventListener('click', stopRecording);
+  // 停止・解析 / 再試行 の二役を担うボタンのディスパッチャ
+  stopBtn.addEventListener('click', () => {
+    if (stopBtn.dataset.mode === 'retry' && pendingRetry) {
+      const { base64Audio, card, mimeType } = pendingRetry;
+      pendingRetry = null;
+      setStopBtnMode('idle');
+      processAudio(base64Audio, card, mimeType);
+    } else {
+      stopRecording();
+    }
+  });
   openOptionsBtn.addEventListener('click', () => {
     chrome.tabs.create({ url: 'options.html' });
   });
