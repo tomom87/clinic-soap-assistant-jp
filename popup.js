@@ -10,8 +10,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const openSettingsBtn = document.getElementById('open-settings-btn');
 
   let mediaRecorder;
-  let audioChunks = [];
   let activeStream = null; // 録音停止時にトラックを確実に止めるための参照
+  let apiKeyLock = Promise.resolve();
   // 直近のAPI失敗時の音声を保持。停止・解析ボタンが「再試行」モードのときに使用
   let pendingRetry = null;
   const MODEL_NAME = 'gemini-3.1-flash-lite-preview';
@@ -185,27 +185,58 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   // --- API Key Management ---
+  const withApiKeyLock = async (fn) => {
+    const previous = apiKeyLock;
+    let release;
+    apiKeyLock = new Promise(resolve => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  };
+
   const getApiKey = async () => {
-    return new Promise((resolve, reject) => {
+    return withApiKeyLock(() => new Promise((resolve, reject) => {
       chrome.storage.local.get(['apiKeys', 'usageLog'], (result) => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError.message || 'APIキー設定の読み込みに失敗しました。');
+          return;
+        }
         const keys = result.apiKeys || [];
         if (!keys.some(k => k && k.trim() !== '')) return reject('APIキーが設定されていません。右上の歯車アイコンから設定してください。');
         const today = new Date().toISOString().split('T')[0];
-        let usageLog = result.usageLog || { date: today, counts: [0, 0, 0, 0] };
-        if (usageLog.date !== today) usageLog = { date: today, counts: [0, 0, 0, 0] };
+        let usageLog = result.usageLog || { date: today, counts: [] };
+        if (usageLog.date !== today) usageLog = { date: today, counts: [] };
 
-        let activeIndex = keys.findIndex((k, i) => k && k.trim() !== '' && usageLog.counts[i] < 20);
+        const counts = Array.isArray(usageLog.counts) ? usageLog.counts.slice(0, keys.length) : [];
+        while (counts.length < keys.length) counts.push(0);
+        usageLog = { date: today, counts };
+
+        const activeIndex = keys.findIndex((k, i) => k && k.trim() !== '' && usageLog.counts[i] < 20);
         if (activeIndex === -1) return reject('全APIキーの使用回数上限に到達しました。');
-        resolve({ key: keys[activeIndex], index: activeIndex, usageLog });
+
+        usageLog.counts[activeIndex]++;
+        chrome.storage.local.set({ usageLog }, () => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError.message || 'APIキー使用回数の保存に失敗しました。');
+            return;
+          }
+          resolve({ key: keys[activeIndex], index: activeIndex });
+        });
       });
-    });
+    }));
   };
 
   // --- Recording Logic ---
   const startRecording = async () => {
+    let stream;
+    let recorder;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(AUDIO_CONSTRAINTS);
-      activeStream = stream;
+      stream = await navigator.mediaDevices.getUserMedia(AUDIO_CONSTRAINTS);
       micErrorContainer.style.display = 'none';
       // 環境が指定 mimeType に対応していなければデフォルトにフォールバック
       let recorderOpts = RECORDER_OPTIONS;
@@ -213,17 +244,19 @@ document.addEventListener('DOMContentLoaded', async () => {
           && !MediaRecorder.isTypeSupported(RECORDER_OPTIONS.mimeType)) {
         recorderOpts = { audioBitsPerSecond: RECORDER_OPTIONS.audioBitsPerSecond };
       }
-      mediaRecorder = new MediaRecorder(stream, recorderOpts);
-      audioChunks = [];
+      recorder = new MediaRecorder(stream, recorderOpts);
+      const chunks = [];
+      mediaRecorder = recorder;
+      activeStream = stream;
 
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) audioChunks.push(event.data);
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) chunks.push(event.data);
       };
 
-      mediaRecorder.onstop = async () => {
+      recorder.onstop = async () => {
         try {
-          const mimeType = mediaRecorder.mimeType || 'audio/webm';
-          const audioBlob = new Blob(audioChunks, { type: mimeType });
+          const mimeType = recorder.mimeType || 'audio/webm';
+          const audioBlob = new Blob(chunks, { type: mimeType });
           const newCard = addResultCard('', Date.now(), false);
           const base64Audio = await blobToBase64Fast(audioBlob);
           // API の inline_data.mime_type は codec パラメータ無しの方が安全
@@ -233,9 +266,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           console.error('Post-stop processing error:', err);
           updateStatus('音声変換に失敗: ' + getErrorMessage(err), 'error');
         } finally {
-          if (activeStream) {
-            activeStream.getTracks().forEach(track => track.stop());
+          stream.getTracks().forEach(track => track.stop());
+          if (activeStream === stream) {
             activeStream = null;
+          }
+          if (mediaRecorder === recorder) {
+            mediaRecorder = null;
           }
         }
       };
@@ -248,6 +284,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       startBtn.disabled = true;
       setStopBtnMode('recording');
     } catch (err) {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      if (activeStream === stream) {
+        activeStream = null;
+      }
+      if (mediaRecorder === recorder) {
+        mediaRecorder = null;
+      }
       handleMicError(err);
     }
   };
@@ -397,7 +442,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (textArea) textArea.value = '';
     card.classList.remove('complete');
     try {
-      const { key, index, usageLog } = await getApiKey();
+      const { key } = await getApiKey();
       const storage = await new Promise(resolve => chrome.storage.local.get({ customPrompt: null }, resolve));
       const prompt = storage.customPrompt || DEFAULT_PROMPT;
 
@@ -438,13 +483,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       // 最初の delta が来た瞬間にスピナーを消してカードを表示状態へ
-      card.classList.add('complete');
       updateStatus('解析中（ストリーミング受信）', 'processing');
 
       let firstDeltaShown = false;
       let { text, blockedReason, finishReason } = await consumeGeminiStream(response, (accumulated) => {
-        if (!firstDeltaShown && spinner) {
-          spinner.style.display = 'none';
+        if (!firstDeltaShown) {
+          card.classList.add('complete');
+          if (spinner) spinner.style.display = 'none';
           firstDeltaShown = true;
         }
         textArea.value = accumulated;
@@ -471,8 +516,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // 最終テキストの確定・履歴保存・自動コピー
       await updateCardContent(card, text.trim());
-      usageLog.counts[index]++;
-      chrome.storage.local.set({ usageLog });
       // 成功したら保留中のリトライを破棄
       pendingRetry = null;
 
