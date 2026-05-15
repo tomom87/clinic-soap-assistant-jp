@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let apiKeyLock = Promise.resolve();
   // 直近のAPI失敗時の音声を保持。停止・解析ボタンが「再試行」モードのときに使用
   let pendingRetry = null;
-  const MODEL_NAME = 'gemini-3.1-flash-lite-preview';
+  const MODEL_NAME = 'gemini-3.1-flash-lite';
   // 音声キャプチャ制約：音声認識用途なのでモノラル/16kHz/低ビットレートに固定
   const AUDIO_CONSTRAINTS = {
     audio: {
